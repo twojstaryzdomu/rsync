@@ -463,6 +463,7 @@ detailed description below for a complete description.
 --bwlimit=RATE           limit socket I/O bandwidth
 --stop-after=MINS        Stop rsync after MINS minutes have elapsed
 --stop-at=y-m-dTh:m      Stop rsync at the specified point in time
+--fsync                  fsync every written file
 --write-batch=FILE       write a batched update to FILE
 --only-write-batch=FILE  like --write-batch but w/o updating dest
 --read-batch=FILE        read a batched update from FILE
@@ -535,6 +536,18 @@ your home directory (remove the '=' for that).
     the end.  Two `-v` options will give you information on what files are
     being skipped and slightly more information at the end.  More than two `-v`
     options should only be used if you are debugging rsync.
+
+    The end-of-run summary tells you the number of bytes sent to the remote
+    rsync (which is the receiving side on a local copy), the number of bytes
+    received from the remote host, and the average bytes per second of the
+    transferred data computed over the entire length of the rsync run. The
+    second line shows the total size (in bytes), which is the sum of all the
+    file sizes that rsync considered transferring.  It also shows a "speedup"
+    value, which is a ratio of the total file size divided by the sum of the
+    sent and received bytes (which is really just a feel-good bigger-is-better
+    number).  Note that these byte values can be made more (or less)
+    human-readable by using the `--human-readable` (or `--no-human-readable`)
+    options.
 
     In a modern rsync, the `-v` option is equivalent to the setting of groups
     of `--info` and `--debug` options.  You can choose to use these newer
@@ -901,6 +914,13 @@ your home directory (remove the '=' for that).
     data that goes into the file-lists, and thus it doesn't affect deletions.
     It just limits the files that the receiver requests to be transferred.
 
+    A caution for those that choose to combine `--inplace` with `--update`: an
+    interrupted transfer will leave behind a partial file on the receiving side
+    that has a very recent modified time, so re-running the transfer will
+    probably **not** continue the interrutped file.  As such, it is usually
+    best to avoid combining this with `--inplace` unless you have implemented
+    manual steps to handle any interrutped in-progress files.
+
 0.  `--update-links`
 
     This option controls rsync behaviour when a symbolic link on the source
@@ -1061,6 +1081,10 @@ your home directory (remove the '=' for that).
     If a file exists in the path of the source link on the destination, it
     will be deleted and replaced by the link. To exempt more recent destination
     files from being replaced by a link, refer to the `--update-links` option.
+
+    By default, rsync generates a "non-regular file" warning for each symlink
+    encountered when this option is not set.  You can silence the warning by
+    specifying ``--info=nonreg0``.
 
 0.  `--copy-links`, `-L`
 
@@ -1368,14 +1392,24 @@ your home directory (remove the '=' for that).
 0.  `--devices`
 
     This option causes rsync to transfer character and block device files to
-    the remote system to recreate these devices.  This option has no effect if
-    the receiving rsync is not run as the super-user (see also the `--super`
-    and `--fake-super` options).
+    the remote system to recreate these devices.  If the receiving rsync is not
+    being run as the super-user, rsync silently skips creating the device files
+    (see also the `--super` and `--fake-super` options).
+
+    By default, rsync generates a "non-regular file" warning for each device
+    file encountered when this option is not set.  You can silence the warning
+    by specifying ``--info=nonreg0``.
 
 0.  `--specials`
 
-    This option causes rsync to transfer special files such as named sockets
-    and fifos.
+    This option causes rsync to transfer special files, such as named sockets
+    and fifos.  If the receiving rsync is not being run as the super-user,
+    rsync silently skips creating the special files (see also the `--super` and
+    `--fake-super` options).
+
+    By default, rsync generates a "non-regular file" warning for each special
+    file encountered when this option is not set.  You can silence the warning
+    by specifying ``--info=nonreg0``.
 
 0.  `-D`
 
@@ -1434,8 +1468,8 @@ your home directory (remove the '=' for that).
 
 0.  `--omit-dir-times`, `-O`
 
-    This tells rsync to omit directories when it is preserving modification
-    times (see `--times`).  If NFS is sharing the directories on the receiving
+    This tells rsync to omit directories when it is preserving modification,
+    access, and create times.  If NFS is sharing the directories on the receiving
     side, it is a good idea to use `-O`.  This option is inferred if you use
     `--backup` without `--backup-dir`.
 
@@ -1452,8 +1486,8 @@ your home directory (remove the '=' for that).
 
 0.  `--omit-link-times`, `-J`
 
-    This tells rsync to omit symlinks when it is preserving modification times
-    (see `--times`).
+    This tells rsync to omit symlinks when it is preserving modification,
+    access, and create times.
 
 0.  `--super`
 
@@ -2093,9 +2127,11 @@ your home directory (remove the '=' for that).
 0.  `--exclude-from=FILE`
 
     This option is related to the `--exclude` option, but it specifies a FILE
-    that contains exclude patterns (one per line).  Blank lines in the file and
-    lines starting with '`;`' or '`#`' are ignored.  If _FILE_ is '`-`', the
-    list will be read from standard input.
+    that contains exclude patterns (one per line).  Blank lines in the file are
+    ignored, as are whole-line comments that start with '`;`' or '`#`'
+    (filename rules that contain those characters are unaffected).
+
+    If _FILE_ is '`-`', the list will be read from standard input.
 
 0.  `--include=PATTERN`
 
@@ -2108,9 +2144,11 @@ your home directory (remove the '=' for that).
 0.  `--include-from=FILE`
 
     This option is related to the `--include` option, but it specifies a FILE
-    that contains include patterns (one per line).  Blank lines in the file and
-    lines starting with '`;`' or '`#`' are ignored.  If _FILE_ is '`-`', the
-    list will be read from standard input.
+    that contains include patterns (one per line).  Blank lines in the file are
+    ignored, as are whole-line comments that start with '`;`' or '`#`'
+    (filename rules that contain those characters are unaffected).
+
+    If _FILE_ is '`-`', the list will be read from standard input.
 
 0.  `--files-from=FILE`
 
@@ -2354,7 +2392,7 @@ your home directory (remove the '=' for that).
 
     >     rsync -av --link-dest=$PWD/prior_dir host:src_dir/ new_dir/
 
-    If file's aren't linking, double-check their attributes.  Also check if
+    If files aren't linking, double-check their attributes.  Also check if
     some attributes are getting forced outside of rsync's control, such a mount
     option that squishes root to a single user, or mounts a removable drive
     with generic ownership (such as OS X's "Ignore ownership on this volume"
@@ -2420,9 +2458,6 @@ your home directory (remove the '=' for that).
     ignore this weirdness unless the rsync server complains and tells you to
     specify `-zz`.
 
-    See also the `--skip-compress` option for the default list of file suffixes
-    that will be transferred with no (or minimal) compression.
-
 0.  `--compress-choice=STR`, `--zc=STR`
 
     This option can be used to override the automatic negotiation of the
@@ -2467,8 +2502,8 @@ your home directory (remove the '=' for that).
     >     rsync -aiv --zc=zstd --zl=22 host:src/ dest/
 
     For zlib & zlibx compression the valid values are from 1 to 9 with 6 being
-    the default.  Specifying 0 turns compression off, and specifying -1 chooses
-    the default of 6.
+    the default.  Specifying `--zl=0` turns compression off, and specifying
+    `--zl=-1` chooses the default level of 6.
 
     For zstd compression the valid values are from -131072 to 22 with 3 being
     the default. Specifying 0 chooses the default of 3.
@@ -2487,14 +2522,15 @@ your home directory (remove the '=' for that).
 
 0.  `--skip-compress=LIST`
 
+    **NOTE:** no compression method currently supports per-file compression
+    changes, so this option has no effect.
+
     Override the list of file suffixes that will be compressed as little as
     possible.  Rsync sets the compression level on a per-file basis based on
-    the file's suffix.  If the compression algorithm has an "off" level (such
-    as zlib/zlibx) then no compression occurs for those files.  Other
-    algorithms that support changing the streaming level on-the-fly will have
-    the level minimized to reduces the CPU usage as much as possible for a
-    matching file.  At this time, only zlib & zlibx compression support this
-    changing of levels on a per-file basis.
+    the file's suffix.  If the compression algorithm has an "off" level, then
+    no compression occurs for those files.  Other algorithms that support
+    changing the streaming level on-the-fly will have the level minimized to
+    reduces the CPU usage as much as possible for a matching file.
 
     The **LIST** should be one or more file suffixes (without the dot) separated
     by slashes (`/`).  You may specify an empty string to indicate that no files
@@ -2677,6 +2713,9 @@ your home directory (remove the '=' for that).
     option to have any effect, the `-g` (`--group`) option must be used (or
     implied), and the receiver will need to have permissions to set that group.
 
+    The `--usermap` option implies the `--owner` option while the `--groupmap`
+    option implies the `--group` option.
+
     If your shell complains about the wildcards, use `--protect-args` (`-s`).
 
 0.  `--chown=USER:GROUP`
@@ -2689,8 +2728,10 @@ your home directory (remove the '=' for that).
     USER is empty, a leading colon must be supplied.
 
     If you specify "`--chown=foo:bar`", this is exactly the same as specifying
-    "`--usermap=*:foo --groupmap=*:bar`", only easier.  If your shell complains
-    about the wildcards, use `--protect-args` (`-s`).
+    "`--usermap=*:foo --groupmap=*:bar`", only easier (with the same implied
+    `--owner` and/or `--group` option).
+
+    If your shell complains about the wildcards, use `--protect-args` (`-s`).
 
 0.  `--timeout=SECONDS`
 
@@ -3257,7 +3298,7 @@ your home directory (remove the '=' for that).
     buffered, while other can show up as very slow when the flushing of the
     output buffer occurs.  This may be fixed in a future version.
 
-0.  `--stop-after=MINS
+0.  `--stop-after=MINS`
 
     This option tells rsync to stop copying when the specified number of
     minutes has elapsed.
@@ -3270,7 +3311,7 @@ your home directory (remove the '=' for that).
     of the connection supports it.  You can tell the remote side about the time
     limit using `--remote-option` (`-M`), should the need arise.
 
-0.  `--stop-at=y-m-dTh:m
+0.  `--stop-at=y-m-dTh:m`
 
     This option tells rsync to stop copying when the specified point in time
     has been reached. The date & time can be fully specified in a numeric
@@ -3296,6 +3337,12 @@ your home directory (remove the '=' for that).
     limit using `--remote-option` (`-M`), should the need arise.  Do keep in
     mind that the remote host may have a different default timezone than your
     local host.
+
+0.  `--fsync`
+
+    Cause the receiving side to fsync each finished file.  This may slow down
+    the transfer, but can help to provide peace of mind when updating critical
+    files.
 
 0.  `--write-batch=FILE`
 
@@ -3545,8 +3592,9 @@ available rule prefixes:
 0.  `risk, 'R'` files that match the pattern are not protected.
 0.  `clear, '!'` clears the current include/exclude list (takes no arg)
 
-When rules are being read from a file, empty lines are ignored, as are comment
-lines that start with a "#".
+When rules are being read from a file, empty lines are ignored, as are
+whole-line comments that start with a '`#`' (filename rules that contain a hash
+are unaffected).
 
 [comment]: # (Remember that markdown strips spaces from start/end of ` ... ` sequences!)
 [comment]: # (Thus, the `x ` sequences below use a literal non-breakable space!)

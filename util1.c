@@ -27,11 +27,13 @@
 
 extern int dry_run;
 extern int module_id;
+extern int do_fsync;
 extern int protect_args;
 extern int modify_window;
 extern int relative_paths;
-extern int preserve_times;
+extern int preserve_mtimes;
 extern int preserve_xattrs;
+extern int omit_link_times;
 extern int preallocate_files;
 extern char *module_dir;
 extern unsigned int module_dirlen;
@@ -158,8 +160,8 @@ int set_times(const char *fname, STRUCT_STAT *stp)
 
 #include "case_N.h"
 		switch_step++;
-		if (preserve_times & PRESERVE_LINK_TIMES) {
-			preserve_times &= ~PRESERVE_LINK_TIMES;
+		if (!omit_link_times) {
+			omit_link_times = 1;
 			if (S_ISLNK(stp->st_mode))
 				return 1;
 		}
@@ -417,10 +419,17 @@ int copy_file(const char *source, const char *dest, int ofd, mode_t mode)
 #endif
 	}
 
+	if (do_fsync && fsync(ofd) < 0) {
+		int save_errno = errno;
+		rsyserr(FERROR, errno, "fsync failed on %s", full_fname(dest));
+		close(ofd);
+		errno = save_errno;
+		return -1;
+	}
+
 	if (close(ofd) < 0) {
 		int save_errno = errno;
-		rsyserr(FERROR_XFER, errno, "close failed on %s",
-			full_fname(dest));
+		rsyserr(FERROR_XFER, errno, "close failed on %s", full_fname(dest));
 		errno = save_errno;
 		return -1;
 	}
@@ -1354,7 +1363,7 @@ int same_time(time_t f1_sec, unsigned long f1_nsec, time_t f2_sec, unsigned long
 		return f1_sec == f2_sec;
 	if (modify_window < 0)
 		return f1_sec == f2_sec && f1_nsec == f2_nsec;
-	/* The nano seconds doesn't figure into these checks -- time windows don't care about that. */
+	/* The nanoseconds do not figure into these checks -- time windows don't care about that. */
 	if (f2_sec > f1_sec)
 		return f2_sec - f1_sec <= modify_window;
 	return f1_sec - f2_sec <= modify_window;

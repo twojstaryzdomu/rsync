@@ -41,6 +41,7 @@ extern int preserve_hard_links;
 extern int preserve_perms;
 extern int write_devices;
 extern int preserve_xattrs;
+extern int do_fsync;
 extern int basis_dir_cnt;
 extern int make_backups;
 extern int cleanup_got_literal;
@@ -394,6 +395,11 @@ static int receive_data(int f_in, char *fname_r, int fd_r, OFF_T size_r,
 
 	sum_len = sum_end(file_sum1);
 
+	if (do_fsync && fd != -1 && fsync(fd) != 0) {
+		rsyserr(FERROR, errno, "fsync failed on %s", full_fname(fname));
+		exit_cleanup(RERR_FILEIO);
+	}
+
 	if (mapbuf)
 		unmap_file(mapbuf);
 
@@ -538,6 +544,9 @@ int recv_files(int f_in, int f_out, char *local_name)
 
 	if (delay_updates)
 		delayed_bits = bitbag_create(cur_flist->used + 1);
+
+	if (whole_file < 0)
+		whole_file = 0;
 
 	progress_init();
 
@@ -826,6 +835,12 @@ int recv_files(int f_in, int f_out, char *local_name)
 		if (inplace || one_inplace)  {
 			fnametmp = one_inplace ? partialptr : fname;
 			fd2 = do_open(fnametmp, O_WRONLY|O_CREAT, 0600);
+#ifdef linux
+			if (fd2 == -1 && errno == EACCES) {
+				/* Maybe the error was due to protected_regular setting? */
+				fd2 = do_open(fname, O_WRONLY, 0600);
+			}
+#endif
 			if (fd2 == -1) {
 				rsyserr(FERROR_XFER, errno, "open %s failed",
 					full_fname(fnametmp));
@@ -878,7 +893,7 @@ int recv_files(int f_in, int f_out, char *local_name)
 					do_unlink(partialptr);
 				handle_partial_dir(partialptr, PDIR_DELETE);
 			}
-		} else if (keep_partial && partialptr && !one_inplace) {
+		} else if (keep_partial && partialptr && (!one_inplace || delay_updates)) {
 			if (!handle_partial_dir(partialptr, PDIR_CREATE)) {
 				rprintf(FERROR,
 					"Unable to create partial-dir for %s -- discarding %s.\n",

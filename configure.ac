@@ -41,7 +41,7 @@ AC_CONFIG_LIBOBJ_DIR([lib])
 
 AC_MSG_CHECKING([whether to include debugging symbols])
 AC_ARG_ENABLE(debug,
-	AS_HELP_STRING([--disable-debug],[disable debugging symbols and features]))
+	AS_HELP_STRING([--disable-debug],[disable to omit debugging symbols and features]))
 
 if test x"$enable_debug" = x"no"; then
     AC_MSG_RESULT(no)
@@ -78,7 +78,7 @@ nl='
 '
 
 AC_ARG_ENABLE(profile,
-	AS_HELP_STRING([--enable-profile],[turn on CPU profiling]))
+	AS_HELP_STRING([--enable-profile],[enable to turn on CPU profiling]))
 if test x"$enable_profile" = x"yes"; then
 	CFLAGS="$CFLAGS -pg"
 fi
@@ -101,7 +101,7 @@ fi
 
 AC_MSG_CHECKING([if we require man-page building])
 AC_ARG_ENABLE([md2man],
-	AS_HELP_STRING([--disable-md2man],[disable md2man for man page creation]))
+	AS_HELP_STRING([--disable-md2man],[disable to omit man page creation]))
 if test x"$enable_md2man" != x"no"; then
     if test -f "$srcdir/rsync.1"; then
 	AC_MSG_RESULT(optional)
@@ -117,12 +117,11 @@ if test x"$enable_md2man" != x"no"; then
     MAKE_MAN=man
 else
     AC_MSG_RESULT(no)
-    MAKE_MAN=''
 fi
 
 # Specifically, this turns on panic_action handling.
 AC_ARG_ENABLE(maintainer-mode,
-	AS_HELP_STRING([--enable-maintainer-mode],[turn on extra debug features]))
+	AS_HELP_STRING([--enable-maintainer-mode],[enable to turn on extra debug features]))
 if test x"$enable_maintainer_mode" = x"yes"; then
 	CFLAGS="$CFLAGS -DMAINTAINER_MODE"
 fi
@@ -135,6 +134,16 @@ CFLAGS="$CFLAGS -DHAVE_CONFIG_H"
 if test x"$GCC" = x"yes"; then
 	CFLAGS="$CFLAGS -Wall -W"
 fi
+
+AC_ARG_WITH(rrsync,
+        AS_HELP_STRING([--with-rrsync],[also install the rrsync script and its man page]))
+if test x"$with_rrsync" != x"yes"; then
+    with_rrsync=no
+else
+    MAKE_RRSYNC='rrsync'
+    MAKE_RRSYNC_1='rrsync.1'
+fi
+AC_SUBST(with_rrsync)
 
 AC_ARG_WITH(included-popt,
         AS_HELP_STRING([--with-included-popt],[use bundled popt library, not from system]))
@@ -224,7 +233,7 @@ SIMD=
 
 AC_MSG_CHECKING([whether to enable SIMD optimizations])
 AC_ARG_ENABLE(simd,
-    AS_HELP_STRING([--disable-simd],[disable SIMD optimizations (requires c++)]))
+    AS_HELP_STRING([--enable-simd],[enable/disable to control SIMD optimizations (requires c++)]))
 
 # Clag is crashing with -g -O2, so we'll get rid of -g for now.
 CXXFLAGS=`echo "$CXXFLAGS" | sed 's/-g //'`
@@ -253,11 +262,18 @@ __attribute__ ((target("ssse3"))) void more_testing(char* buf, int len)
 }
 ]])
 
+if test x"$enable_simd" = x""; then
+    case "$host_os" in
+	*linux*) ;;
+	*) enable_simd=no ;;
+    esac
+fi
+
 if test x"$enable_simd" != x"no"; then
     # For x86-64 SIMD, g++ >=5 or clang++ >=7 is required
-    if test x"$host_cpu" = x"x86_64"; then
+    if test x"$host_cpu" = x"x86_64" || test x"$host_cpu" = x"amd64"; then
 	AC_LANG(C++)
-	if test x"$host_cpu" = x"$build_cpu"; then
+	if test x"$host" = x"$build"; then
 	    AC_RUN_IFELSE([AC_LANG_PROGRAM([SIMD_X86_64_TEST],[[if (test_ssse3(42) != 42 || test_sse2(42) != 42 || test_avx2(42) != 42) exit(1);]])],
 		[CXX_OK=yes],[CXX_OK=no])
 	else
@@ -266,7 +282,7 @@ if test x"$enable_simd" != x"no"; then
 	AC_LANG(C)
 	if test x"$CXX_OK" = x"yes"; then
 	    # AC_MSG_RESULT() is called below.
-	    SIMD="x86_64"
+	    SIMD="$host_cpu"
 	elif test x"$enable_simd" = x"yes"; then
 	    AC_MSG_RESULT(error)
 	    AC_MSG_ERROR(The SIMD compilation test failed.
@@ -274,7 +290,7 @@ Omit --enable-simd to continue without it.)
 	fi
     elif test x"$enable_simd" = x"yes"; then
         AC_MSG_RESULT(unavailable)
-        AC_MSG_ERROR(The SIMD optimizations are currently x86_64 only.
+        AC_MSG_ERROR(The SIMD optimizations are currently x86_64|amd64 only.
 Omit --enable-simd to continue without it.)
     fi
 fi
@@ -309,14 +325,21 @@ ASM=
 
 AC_MSG_CHECKING([whether to enable ASM optimizations])
 AC_ARG_ENABLE(asm,
-    AS_HELP_STRING([--disable-asm],[disable ASM optimizations]))
+    AS_HELP_STRING([--enable-asm],[enable/disable to control ASM optimizations]))
+
+if test x"$enable_asm" = x""; then
+    case "$host_os" in
+	*linux*) ;;
+	*) enable_asm=no ;;
+    esac
+fi
 
 if test x"$enable_asm" != x"no"; then
-    if test x"$host_cpu" = x"x86_64"; then
+    if test x"$host_cpu" = x"x86_64" || test x"$host_cpu" = x"amd64"; then
 	ASM="$host_cpu"
     elif test x"$enable_asm" = x"yes"; then
         AC_MSG_RESULT(unavailable)
-        AC_MSG_ERROR(The ASM optimizations are currently x86_64 only.
+        AC_MSG_ERROR(The ASM optimizations are currently x86_64|amd64 only.
 Omit --enable-asm to continue without it.)
     fi
 fi
@@ -376,132 +399,39 @@ if test x"$rsync_cv_HAVE_BROKEN_LARGEFILE" != x"yes"; then
    AC_SYS_LARGEFILE
 fi
 
-ipv6type=unknown
-ipv6lib=none
-ipv6trylibc=yes
-
+AC_MSG_CHECKING([whether to enable ipv6])
 AC_ARG_ENABLE(ipv6,
-	AS_HELP_STRING([--disable-ipv6],[turn off IPv6 support]))
-if test x"$enable_ipv6" != x"no"; then
-	AC_MSG_CHECKING([ipv6 stack type])
-	for i in inria kame linux-glibc linux-inet6 solaris toshiba v6d zeta cygwin TANDEM; do
-		case $i in
-		inria)
-			# http://www.kame.net/
-			AC_EGREP_CPP(yes, [
-#include <netinet/in.h>
-#ifdef IPV6_INRIA_VERSION
-yes
-#endif],
-				[ipv6type=$i;
-				AC_DEFINE(INET6, 1, [true if you have IPv6])
-				])
-			;;
-		kame)
-			# http://www.kame.net/
-			AC_EGREP_CPP(yes, [
-#include <netinet/in.h>
-#ifdef __KAME__
-yes
-#endif],
-				[ipv6type=$i;
-				AC_DEFINE(INET6, 1, [true if you have IPv6])])
-			;;
-		linux-glibc)
-			# http://www.v6.linux.or.jp/
-			AC_EGREP_CPP(yes, [
-#include <features.h>
-#if defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 1))
-yes
-#endif],
-				[ipv6type=$i;
-AC_DEFINE(INET6, 1, [true if you have IPv6])])
-			;;
-		linux-inet6)
-			# http://www.v6.linux.or.jp/
-			if test -d /usr/inet6 -o -f /usr/inet6/lib/libinet6.a; then
-				ipv6type=$i
-				ipv6lib=inet6
-				ipv6libdir=/usr/inet6/lib
-				ipv6trylibc=yes;
-				AC_DEFINE(INET6, 1, [true if you have IPv6])
-				CFLAGS="-I/usr/inet6/include $CFLAGS"
-			fi
-			;;
-		solaris)
-			# http://www.sun.com
-			AC_EGREP_CPP(yes, [
-#include <netinet/ip6.h>
-#ifdef __sun
-yes
-#endif],
-				[ipv6type=$i;
-				AC_DEFINE(INET6, 1, [true if you have IPv6])])
-			;;
-		toshiba)
-			AC_EGREP_CPP(yes, [
-#include <sys/param.h>
-#ifdef _TOSHIBA_INET6
-yes
-#endif],
-				[ipv6type=$i;
-				ipv6lib=inet6;
-				ipv6libdir=/usr/local/v6/lib;
-				AC_DEFINE(INET6, 1, [true if you have IPv6])])
-			;;
-		v6d)
-			AC_EGREP_CPP(yes, [
-#include </usr/local/v6/include/sys/v6config.h>
-#ifdef __V6D__
-yes
-#endif],
-				[ipv6type=$i;
-				ipv6lib=v6;
-				ipv6libdir=/usr/local/v6/lib;
-				AC_DEFINE(INET6, 1, [true if you have IPv6])])
-			;;
-		zeta)
-			AC_EGREP_CPP(yes, [
-#include <sys/param.h>
-#ifdef _ZETA_MINAMI_INET6
-yes
-#endif],
-				[ipv6type=$i;
-				ipv6lib=inet6;
-				ipv6libdir=/usr/local/v6/lib;
-				AC_DEFINE(INET6, 1, [true if you have IPv6])])
-			;;
-		cygwin)
-			AC_EGREP_CPP(yes, [
-#include <netinet/in.h>
-#ifdef _CYGWIN_IN6_H
-yes
-#endif],
-				[ipv6type=$i;
-				AC_DEFINE(INET6, 1, [true if you have IPv6])])
-			;;
-		TANDEM)
-			AC_EGREP_CPP(yes, [
-#include <netinet/ip6.h>
-#ifdef __TANDEM
-yes
-#endif],
-				[ipv6type=$i;
-				AC_DEFINE(INET6, 1, [true if you have IPv6])])
-			;;
-		esac
-		if test "$ipv6type" != "unknown"; then
-			break
-		fi
-	done
-	AC_MSG_RESULT($ipv6type)
+AS_HELP_STRING([--disable-ipv6],[disable to omit ipv6 support]),
+[ case "$enableval" in
+  no)
+	AC_MSG_RESULT(no)
+	;;
+  *)	AC_MSG_RESULT(yes)
+	AC_DEFINE(INET6, 1, [true if you have IPv6])
+	;;
+  esac ],
 
-	AC_SEARCH_LIBS(getaddrinfo, inet6)
-fi
+  AC_TRY_RUN([ /* AF_INET6 avalable check */
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+main()
+{
+   if (socket(AF_INET6, SOCK_STREAM, 0) < 0)
+     exit(1);
+   else
+     exit(0);
+}
+],
+  AC_MSG_RESULT(yes)
+  AC_DEFINE(INET6, 1, [true if you have IPv6]),
+  AC_MSG_RESULT(no),
+  AC_MSG_RESULT(no)
+))
 
 dnl Do you want to disable use of locale functions
 AC_ARG_ENABLE([locale],
-	AS_HELP_STRING([--disable-locale],[disable locale features]))
+	AS_HELP_STRING([--disable-locale],[disable to omit locale features]))
 AH_TEMPLATE([CONFIG_LOCALE],
 [Undefine if you do not want locale features.  By default this is defined.])
 if test x"$enable_locale" != x"no"; then
@@ -519,7 +449,7 @@ esac
 
 AC_MSG_CHECKING([whether to enable use of openssl crypto library])
 AC_ARG_ENABLE([openssl],
-	AS_HELP_STRING([--disable-openssl],[disable openssl crypto library]))
+	AS_HELP_STRING([--disable-openssl],[disable to omit openssl crypto library]))
 AH_TEMPLATE([USE_OPENSSL],
 [Undefine if you do not want to use openssl crypto library.  By default this is defined.])
 if test x"$enable_openssl" != x"no"; then
@@ -540,7 +470,7 @@ fi
 
 AC_MSG_CHECKING([whether to enable xxhash checksum support])
 AC_ARG_ENABLE([xxhash],
-	AS_HELP_STRING([--disable-xxhash],[disable xxhash checksums]))
+	AS_HELP_STRING([--disable-xxhash],[disable to omit xxhash checksums]))
 AH_TEMPLATE([SUPPORT_XXHASH],
 [Undefine if you do not want xxhash checksums.  By default this is defined.])
 if test x"$enable_xxhash" != x"no"; then
@@ -561,7 +491,7 @@ fi
 
 AC_MSG_CHECKING([whether to enable zstd compression])
 AC_ARG_ENABLE([zstd],
-        AC_HELP_STRING([--disable-zstd], [disable zstd compression]))
+        AC_HELP_STRING([--disable-zstd], [disable to omit zstd compression]))
 AH_TEMPLATE([SUPPORT_ZSTD],
 [Undefine if you do not want zstd compression.  By default this is defined.])
 if test x"$enable_zstd" != x"no"; then
@@ -582,7 +512,7 @@ fi
 
 AC_MSG_CHECKING([whether to enable LZ4 compression])
 AC_ARG_ENABLE([lz4],
-        AC_HELP_STRING([--disable-lz4], [disable LZ4 compression]))
+        AC_HELP_STRING([--disable-lz4], [disable to omit LZ4 compression]))
 AH_TEMPLATE([SUPPORT_LZ4],
 [Undefine if you do not want LZ4 compression.  By default this is defined.])
 if test x"$enable_lz4" != x"no"; then
@@ -791,7 +721,7 @@ yes
 #endif],
 			rsync_cv_HAVE_GETADDR_DEFINES=yes,
 			rsync_cv_HAVE_GETADDR_DEFINES=no)])
-AS_IF([test x"$rsync_cv_HAVE_GETADDR_DEFINES" = x"yes" -a x"$ac_cv_type_struct_addrinfo" = x"yes"],[
+AS_IF([test x"$rsync_cv_HAVE_GETADDR_DEFINES" = x"yes" && test x"$ac_cv_type_struct_addrinfo" = x"yes"],[
 	# Tru64 UNIX has getaddrinfo() but has it renamed in libc as
 	# something else so we must include <netdb.h> to get the
 	# redefinition.
@@ -901,7 +831,7 @@ AC_CHECK_FUNCS(waitpid wait4 getcwd chown chmod lchmod mknod mkfifo \
     fchmod fstat ftruncate strchr readlink link utime utimes lutimes strftime \
     chflags getattrlist mktime innetgr linkat \
     memmove lchown vsnprintf snprintf vasprintf asprintf setsid strpbrk \
-    strlcat strlcpy strtol mallinfo getgroups setgroups geteuid getegid \
+    strlcat strlcpy strtol mallinfo mallinfo2 getgroups setgroups geteuid getegid \
     setlocale setmode open64 lseek64 mkstemp64 mtrace va_copy __va_copy \
     seteuid strerror putenv iconv_open locale_charset nl_langinfo getxattr \
     extattr_get_link sigaction sigprocmask setattrlist getgrouplist \
@@ -988,7 +918,7 @@ if test $ac_cv_func_getpgrp = yes; then
 fi
 
 AC_ARG_ENABLE(iconv-open,
-    AS_HELP_STRING([--disable-iconv-open],[disable all use of iconv_open() function]),
+    AS_HELP_STRING([--disable-iconv-open],[disable to avoid all use of iconv_open()]),
     [], [enable_iconv_open=$ac_cv_func_iconv_open])
 
 if test x"$enable_iconv_open" != x"no"; then
@@ -996,7 +926,7 @@ if test x"$enable_iconv_open" != x"no"; then
 fi
 
 AC_ARG_ENABLE(iconv,
-    AS_HELP_STRING([--disable-iconv],[disable rsync's --iconv option]),
+    AS_HELP_STRING([--disable-iconv],[disable to omit the --iconv option]),
     [], [enable_iconv=$enable_iconv_open])
 AH_TEMPLATE([ICONV_OPTION],
 [Define if you want the --iconv option.  Specifying a value will set the
@@ -1325,6 +1255,8 @@ AC_SUBST(OBJ_RESTORE)
 AC_SUBST(CC_SHOBJ_FLAG)
 AC_SUBST(BUILD_POPT)
 AC_SUBST(BUILD_ZLIB)
+AC_SUBST(MAKE_RRSYNC)
+AC_SUBST(MAKE_RRSYNC_1)
 AC_SUBST(MAKE_MAN)
 
 AC_CHECK_FUNCS(_acl __acl _facl __facl)
@@ -1333,7 +1265,7 @@ AC_CHECK_FUNCS(_acl __acl _facl __facl)
 
 AC_MSG_CHECKING([whether to support ACLs])
 AC_ARG_ENABLE(acl-support,
-	AS_HELP_STRING([--disable-acl-support],[disable ACL support]))
+	AS_HELP_STRING([--disable-acl-support],[disable to omit ACL support]))
 
 if test x"$enable_acl_support" = x"no"; then
     AC_MSG_RESULT(no)
@@ -1417,7 +1349,7 @@ fi
 # check for extended attribute support
 AC_MSG_CHECKING(whether to support extended attributes)
 AC_ARG_ENABLE(xattr-support,
-    AS_HELP_STRING([--disable-xattr-support],[disable extended attributes]),
+    AS_HELP_STRING([--disable-xattr-support],[disable to omit extended attributes]),
     [], [case "$ac_cv_func_getxattr$ac_cv_func_extattr_get_link$ac_cv_func_attropen" in
 	*yes*) enable_xattr_support=maybe ;;
 	*) enable_xattr_support=no ;;
@@ -1463,7 +1395,7 @@ else
     esac
 fi
 
-if test x"$enable_acl_support" = x"no" -o x"$enable_xattr_support" = x"no" -o x"$enable_iconv" = x"no"; then
+if test x"$enable_acl_support" = x"no" || test x"$enable_xattr_support" = x"no" || test x"$enable_iconv" = x"no"; then
     AC_MSG_CHECKING([whether $CC supports -Wno-unused-parameter])
     OLD_CFLAGS="$CFLAGS"
     CFLAGS="$CFLAGS -Wno-unused-parameter"

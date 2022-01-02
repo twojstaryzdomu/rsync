@@ -18,6 +18,11 @@
  * with this program; if not, visit the http://fsf.org website.
  */
 
+/* a non-zero CHAR_OFFSET makes the rolling sum stronger, but is
+   incompatible with older versions :-( */
+#define CHAR_OFFSET 0
+
+#ifndef AVX2_ASM /* do not include the rest of file for assembly */
 #define False 0
 #define True 1
 #define Unset (-1) /* Our BOOL values are always an int. */
@@ -38,9 +43,6 @@
 
 #define BACKUP_SUFFIX "~"
 
-/* a non-zero CHAR_OFFSET makes the rolling sum stronger, but is
-   incompatible with older versions :-( */
-#define CHAR_OFFSET 0
 
 /* These flags are only used during the flist transfer. */
 
@@ -109,7 +111,7 @@
 			     == ((unsigned)(b2) & (unsigned)(mask)))
 
 /* Update this if you make incompatible changes and ALSO update the
- * SUBPROTOCOL_VERSION if it is not a final (offical) release. */
+ * SUBPROTOCOL_VERSION if it is not a final (official) release. */
 #define PROTOCOL_VERSION 31
 
 /* This is used when working on a new protocol version or for any unofficial
@@ -491,7 +493,6 @@ enum delret {
 #ifndef __TANDEM
 #define MAKEDEV(devmajor,devminor) makedev(devmajor,devminor)
 #else
-# include <sys/stat.h>
 # define major DEV_TO_MAJOR
 # define minor DEV_TO_MINOR
 # define MAKEDEV MAJORMINOR_TO_DEV
@@ -583,11 +584,11 @@ typedef unsigned int size_t;
 #endif
 #endif
 
-#ifndef __APPLE__ /* Do we need a configure check for this? */
+#if !defined __APPLE__ || defined HAVE_GETATTRLIST
 #define SUPPORT_ATIMES 1
 #endif
 
-#ifdef HAVE_GETATTRLIST
+#if defined HAVE_GETATTRLIST || defined __CYGWIN__
 #define SUPPORT_CRTIMES 1
 #endif
 
@@ -779,6 +780,11 @@ struct ht_int64_node {
 
 #if defined __STDC_VERSION__ && __STDC_VERSION__ >= 199901L
 #define USE_FLEXIBLE_ARRAY 1
+#define SIZE_T_FMT_MOD "z" /* printf supports %zd */
+#define SIZE_T_FMT_CAST size_t
+#else
+#define SIZE_T_FMT_MOD "l" /* printf supports %ld */
+#define SIZE_T_FMT_CAST long
 #endif
 
 union file_extras {
@@ -917,8 +923,9 @@ extern int xattrs_ndx;
  * Start the flist array at FLIST_START entries and grow it
  * by doubling until FLIST_LINEAR then grow by FLIST_LINEAR
  */
-#define FLIST_START	(32 * 1024)
-#define FLIST_LINEAR	(FLIST_START * 512)
+#define FLIST_START		(32)
+#define FLIST_START_LARGE	(32 * 1024)
+#define FLIST_LINEAR		(FLIST_START_LARGE * 512)
 
 /*
  * Extent size for allocation pools: A minimum size of 128KB
@@ -1325,10 +1332,6 @@ extern int errno;
 #define IS_SPECIAL(mode) (S_ISSOCK(mode) || S_ISFIFO(mode))
 #define IS_DEVICE(mode) (S_ISCHR(mode) || S_ISBLK(mode))
 
-#define PRESERVE_FILE_TIMES	(1<<0)
-#define PRESERVE_DIR_TIMES	(1<<1)
-#define PRESERVE_LINK_TIMES	(1<<2)
-
 /* Initial mask on permissions given to temporary files.  Mask off setuid
      bits and group access because of potential race-condition security
      holes, and mask other access because mode 707 is bizarre */
@@ -1418,7 +1421,8 @@ extern short info_levels[], debug_levels[];
 #define INFO_MISC (INFO_FLIST+1)
 #define INFO_MOUNT (INFO_MISC+1)
 #define INFO_NAME (INFO_MOUNT+1)
-#define INFO_PROGRESS (INFO_NAME+1)
+#define INFO_NONREG (INFO_NAME+1)
+#define INFO_PROGRESS (INFO_NONREG+1)
 #define INFO_REMOVE (INFO_PROGRESS+1)
 #define INFO_SKIP (INFO_REMOVE+1)
 #define INFO_STATS (INFO_SKIP+1)
@@ -1473,3 +1477,10 @@ const char *get_panic_action(void);
     fprintf(stderr, "%s in %s at line %d\n", msg, __FILE__, __LINE__); \
     exit_cleanup(RERR_UNSUPPORTED); \
 } while (0)
+#endif  /* AVX2_ASM */
+
+#ifdef HAVE_MALLINFO2
+#define MEM_ALLOC_INFO mallinfo2
+#elif defined HAVE_MALLINFO
+#define MEM_ALLOC_INFO mallinfo
+#endif
