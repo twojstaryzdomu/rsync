@@ -44,7 +44,9 @@ extern int preserve_specials;
 extern int preserve_hard_links;
 extern int preserve_executability;
 extern int preserve_perms;
-extern int preserve_times;
+extern int preserve_mtimes;
+extern int omit_dir_times;
+extern int omit_link_times;
 extern int delete_mode;
 extern int delete_before;
 extern int delete_during;
@@ -270,7 +272,7 @@ static void do_delayed_deletions(char *delbuf)
  * MAXPATHLEN buffer with the name of the directory in it (the functions we
  * call will append names onto the end, but the old dir value will be restored
  * on exit). */
-static void delete_in_dir(char *fbuf, struct file_struct *file, dev_t *fs_dev)
+static void delete_in_dir(char *fbuf, struct file_struct *file, dev_t fs_dev)
 {
 	static int already_warned = 0;
 	static struct hashtable *dev_tbl;
@@ -305,12 +307,12 @@ static void delete_in_dir(char *fbuf, struct file_struct *file, dev_t *fs_dev)
 		if (!dev_tbl)
 			dev_tbl = hashtable_create(16, HT_KEY64);
 		if (file->flags & FLAG_TOP_DIR) {
-			hashtable_find(dev_tbl, *fs_dev+1, "");
-			filesystem_dev = *fs_dev;
-		} else if (filesystem_dev != *fs_dev) {
-			if (!hashtable_find(dev_tbl, *fs_dev+1, NULL))
+			hashtable_find(dev_tbl, fs_dev+1, "");
+			filesystem_dev = fs_dev;
+		} else if (filesystem_dev != fs_dev) {
+			if (!hashtable_find(dev_tbl, fs_dev+1, NULL))
 				return;
-			filesystem_dev = *fs_dev; /* it's a prior top-dir dev */
+			filesystem_dev = fs_dev; /* it's a prior top-dir dev */
 		}
 	}
 
@@ -379,9 +381,9 @@ static void do_delete_pass(void)
 		 || !S_ISDIR(st.st_mode))
 			continue;
 
-		delete_in_dir(fbuf, file, &st.st_dev);
+		delete_in_dir(fbuf, file, st.st_dev);
 	}
-	delete_in_dir(NULL, NULL, &dev_zero);
+	delete_in_dir(NULL, NULL, dev_zero);
 
 	if (INFO_GTE(FLIST, 2) && !am_server)
 		rprintf(FINFO, "                    \r");
@@ -402,7 +404,7 @@ static inline int any_time_differs(stat_x *sxp, struct file_struct *file, UNUSED
 #ifdef SUPPORT_CRTIMES
 	if (!differs && crtimes_ndx) {
 		if (sxp->crtime == 0)
-			sxp->crtime = get_create_time(fname);
+			sxp->crtime = get_create_time(fname, &sxp->st);
 		differs = !same_time(sxp->crtime, 0, F_CRTIME(file), 0);
 	}
 #endif
@@ -463,7 +465,7 @@ int unchanged_attrs(const char *fname, struct file_struct *file, stat_x *sxp)
 {
 	if (S_ISLNK(file->mode)) {
 #ifdef CAN_SET_SYMLINK_TIMES
-		if (preserve_times & PRESERVE_LINK_TIMES && any_time_differs(sxp, file, fname))
+		if (preserve_mtimes && !omit_link_times && any_time_differs(sxp, file, fname))
 			return 0;
 #endif
 #ifdef CAN_CHMOD_SYMLINK
@@ -483,7 +485,7 @@ int unchanged_attrs(const char *fname, struct file_struct *file, stat_x *sxp)
 			return 0;
 #endif
 	} else {
-		if (preserve_times && any_time_differs(sxp, file, fname))
+		if (preserve_mtimes && any_time_differs(sxp, file, fname))
 			return 0;
 		if (perms_differ(file, sxp))
 			return 0;
@@ -507,9 +509,9 @@ void itemize(const char *fnamecmp, struct file_struct *file, int ndx, int statre
 	     const char *xname)
 {
 	if (statret >= 0) { /* A from-dest-dir statret can == 1! */
-		int keep_time = !preserve_times ? 0
-		    : S_ISDIR(file->mode) ? preserve_times & PRESERVE_DIR_TIMES
-		    : S_ISLNK(file->mode) ? preserve_times & PRESERVE_LINK_TIMES
+		int keep_time = !preserve_mtimes ? 0
+		    : S_ISDIR(file->mode) ? !omit_dir_times
+		    : S_ISLNK(file->mode) ? !omit_link_times
 		    : 1;
 
 		if (S_ISREG(file->mode) && F_LENGTH(file) != sxp->st.st_size)
@@ -528,7 +530,7 @@ void itemize(const char *fnamecmp, struct file_struct *file, int ndx, int statre
 #ifdef SUPPORT_CRTIMES
 		if (crtimes_ndx) {
 			if (sxp->crtime == 0)
-				sxp->crtime = get_create_time(fnamecmp);
+				sxp->crtime = get_create_time(fnamecmp, &sxp->st);
 			if (!same_time(sxp->crtime, 0, F_CRTIME(file), 0))
 				iflags |= ITEM_REPORT_CRTIME;
 		}
@@ -1285,7 +1287,6 @@ static void recv_generator(char *fname, struct file_struct *file, int ndx,
 			return;
 		}
 	}
-	sx.crtime = 0;
 
 	if (dry_run > 1 || (dry_missing_dir && is_below(file, dry_missing_dir))) {
 		int i;
@@ -1428,7 +1429,7 @@ static void recv_generator(char *fname, struct file_struct *file, int ndx,
 		} else
 			added_perms = 0;
 		if (is_dir < 0) {
-			if (!(preserve_times & PRESERVE_DIR_TIMES))
+			if (!preserve_mtimes || omit_dir_times)
 				goto cleanup;
 			/* In inc_recurse mode we want to make sure any missing
 			 * directories get created while we're still processing
@@ -1532,7 +1533,7 @@ static void recv_generator(char *fname, struct file_struct *file, int ndx,
 		else if (delete_during && f_out != -1 && !phase
 		    && !(file->flags & FLAG_MISSING_DIR)) {
 			if (file->flags & FLAG_CONTENT_DIR)
-				delete_in_dir(fname, file, &real_sx.st.st_dev);
+				delete_in_dir(fname, file, real_sx.st.st_dev);
 			else
 				change_local_filter_dir(fname, strlen(fname), F_DEPTH(file));
 		}
@@ -1755,9 +1756,11 @@ static void recv_generator(char *fname, struct file_struct *file, int ndx,
 	}
 
 	if (ftype != FT_REG) {
-		if (solo_file)
-			fname = f_name(file, NULL);
-		rprintf(FINFO, "skipping non-regular file \"%s\"\n", fname);
+		if (INFO_GTE(NONREG, 1)) {
+			if (solo_file)
+				fname = f_name(file, NULL);
+			rprintf(FINFO, "skipping non-regular file \"%s\"\n", fname);
+		}
 		goto cleanup;
 	}
 
@@ -2317,7 +2320,7 @@ void generate_files(int f_out, const char *local_name)
 	}
 	solo_file = local_name;
 	dir_tweaking = !(list_only || solo_file || dry_run);
-	need_retouch_dir_times = preserve_times & PRESERVE_DIR_TIMES;
+	need_retouch_dir_times = preserve_mtimes && !omit_dir_times;
 	loopchk_limit = allowed_lull ? allowed_lull * 5 : 200;
 	symlink_timeset_failed_flags = ITEM_REPORT_TIME
 	    | (protocol_version >= 30 || !am_server ? ITEM_REPORT_TIMEFAIL : 0);
@@ -2370,7 +2373,7 @@ void generate_files(int f_out, const char *local_name)
 						dirdev = MAKEDEV(DEV_MAJOR(devp), DEV_MINOR(devp));
 					} else
 						dirdev = MAKEDEV(0, 0);
-					delete_in_dir(fbuf, fp, &dirdev);
+					delete_in_dir(fbuf, fp, dirdev);
 				} else
 					change_local_filter_dir(fbuf, strlen(fbuf), F_DEPTH(fp));
 			}
@@ -2417,7 +2420,7 @@ void generate_files(int f_out, const char *local_name)
 	} while ((cur_flist = cur_flist->next) != NULL);
 
 	if (delete_during)
-		delete_in_dir(NULL, NULL, &dev_zero);
+		delete_in_dir(NULL, NULL, dev_zero);
 	phase++;
 	if (DEBUG_GTE(GENR, 1))
 		rprintf(FINFO, "generate_files phase=%d\n", phase);

@@ -60,14 +60,17 @@ int preserve_devices = 0;
 int preserve_specials = 0;
 int preserve_uid = 0;
 int preserve_gid = 0;
-int preserve_times = 0;
+int preserve_mtimes = 0;
 int preserve_atimes = 0;
 int preserve_crtimes = 0;
+int omit_dir_times = 0;
+int omit_link_times = 0;
 int update_only = 0;
 int open_noatime = 0;
 int cvs_exclude = 0;
 int dry_run = 0;
 int do_xfers = 1;
+int do_fsync = 0;
 int ignore_times = 0;
 int delete_mode = 0;
 int delete_during = 0;
@@ -90,6 +93,7 @@ int implied_dirs = 1;
 int missing_args = 0; /* 0 = FERROR_XFER, 1 = ignore, 2 = delete */
 int numeric_ids = 0;
 int msgs2stderr = 2; /* Default: send errors to stderr for local & remote-shell transfers */
+int saw_stderr_opt = 0;
 int allow_8bit_chars = 0;
 int force_delete = 0;
 int io_timeout = 0;
@@ -229,7 +233,7 @@ static const char *debug_verbosity[] = {
 #define MAX_VERBOSITY ((int)(sizeof debug_verbosity / sizeof debug_verbosity[0]) - 1)
 
 static const char *info_verbosity[1+MAX_VERBOSITY] = {
-	/*0*/ NULL,
+	/*0*/ "NONREG",
 	/*1*/ "COPY,DEL,FLIST,MISC,NAME,STATS,SYMSAFE",
 	/*2*/ "BACKUP,MISC2,MOUNT,NAME2,REMOVE,SKIP",
 };
@@ -267,9 +271,10 @@ static struct output_struct info_words[COUNT_INFO+1] = {
 	INFO_WORD(MISC, W_SND|W_REC, "Mention miscellaneous information (levels 1-2)"),
 	INFO_WORD(MOUNT, W_SND|W_REC, "Mention mounts that were found or skipped"),
 	INFO_WORD(NAME, W_SND|W_REC, "Mention 1) updated file/dir names, 2) unchanged names"),
+	INFO_WORD(NONREG, W_REC, "Mention skipped non-regular files (default 1, 0 disables)"),
 	INFO_WORD(PROGRESS, W_CLI, "Mention 1) per-file progress or 2) total transfer progress"),
 	INFO_WORD(REMOVE, W_SND, "Mention files removed on the sending side"),
-	INFO_WORD(SKIP, W_REC, "Mention files that are skipped due to options used (levels 1-2)"),
+	INFO_WORD(SKIP, W_REC, "Mention files skipped due to transfer overrides (levels 1-2)"),
 	INFO_WORD(STATS, W_CLI|W_SRV, "Mention statistics at end of run (levels 1-3)"),
 	INFO_WORD(SYMSAFE, W_SND|W_REC, "Mention symlinks that are unsafe"),
 	{ NULL, "--info", 0, 0, 0, 0 }
@@ -309,8 +314,6 @@ static int verbose = 0;
 static int do_stats = 0;
 static int do_progress = 0;
 static int daemon_opt;   /* sets am_daemon after option error-reporting */
-static int omit_dir_times = 0;
-static int omit_link_times = 0;
 static int F_option_cnt = 0;
 static int modify_window_set;
 static int itemize_changes = 0;
@@ -489,9 +492,9 @@ static void output_item_help(struct output_struct *words)
 
 	rprintf(FINFO, fmt, "HELP", "Output this help message");
 	rprintf(FINFO, "\n");
-	rprintf(FINFO, "Options added for each increase in verbose level:\n");
+	rprintf(FINFO, "Options added at each level of verbosity:\n");
 
-	for (j = 1; j <= MAX_VERBOSITY; j++) {
+	for (j = 0; j <= MAX_VERBOSITY; j++) {
 		parse_output_words(words, levels, verbosity[j], HELP_PRIORITY);
 		opt = make_output_option(words, levels, W_CLI|W_SRV|W_SND|W_REC);
 		if (opt) {
@@ -510,7 +513,7 @@ static void set_output_verbosity(int level, uchar priority)
 	if (level > MAX_VERBOSITY)
 		level = MAX_VERBOSITY;
 
-	for (j = 1; j <= level; j++) {
+	for (j = 0; j <= level; j++) {
 		parse_output_words(info_words, info_levels, info_verbosity[j], priority);
 		parse_output_words(debug_words, debug_levels, debug_verbosity[j], priority);
 	}
@@ -529,7 +532,7 @@ void limit_output_verbosity(int level)
 	memset(debug_limits, 0, sizeof debug_limits);
 
 	/* Compute the level limits in the above arrays. */
-	for (j = 1; j <= level; j++) {
+	for (j = 0; j <= level; j++) {
 		parse_output_words(info_words, info_limits, info_verbosity[j], LIMIT_PRIORITY);
 		parse_output_words(debug_words, debug_limits, debug_verbosity[j], LIMIT_PRIORITY);
 	}
@@ -623,9 +626,9 @@ static struct poptOption long_options[] = {
   {"xattrs",          'X', POPT_ARG_NONE,   0, 'X', 0, 0 },
   {"no-xattrs",        0,  POPT_ARG_VAL,    &preserve_xattrs, 0, 0, 0 },
   {"no-X",             0,  POPT_ARG_VAL,    &preserve_xattrs, 0, 0, 0 },
-  {"times",           't', POPT_ARG_VAL,    &preserve_times, 1, 0, 0 },
-  {"no-times",         0,  POPT_ARG_VAL,    &preserve_times, 0, 0, 0 },
-  {"no-t",             0,  POPT_ARG_VAL,    &preserve_times, 0, 0, 0 },
+  {"times",           't', POPT_ARG_VAL,    &preserve_mtimes, 1, 0, 0 },
+  {"no-times",         0,  POPT_ARG_VAL,    &preserve_mtimes, 0, 0, 0 },
+  {"no-t",             0,  POPT_ARG_VAL,    &preserve_mtimes, 0, 0, 0 },
   {"atimes",          'U', POPT_ARG_NONE,   0, 'U', 0, 0 },
   {"no-atimes",        0,  POPT_ARG_VAL,    &preserve_atimes, 0, 0, 0 },
   {"no-U",             0,  POPT_ARG_VAL,    &preserve_atimes, 0, 0, 0 },
@@ -793,6 +796,7 @@ static struct poptOption long_options[] = {
   {"no-timeout",       0,  POPT_ARG_VAL,    &io_timeout, 0, 0, 0 },
   {"contimeout",       0,  POPT_ARG_INT,    &connect_timeout, 0, 0, 0 },
   {"no-contimeout",    0,  POPT_ARG_VAL,    &connect_timeout, 0, 0, 0 },
+  {"fsync",            0,  POPT_ARG_NONE,   &do_fsync, 0, 0, 0 },
   {"stop-after",       0,  POPT_ARG_STRING, 0, OPT_STOP_AFTER, 0, 0 },
   {"time-limit",       0,  POPT_ARG_STRING, 0, OPT_STOP_AFTER, 0, 0 }, /* earlier stop-after name */
   {"stop-at",          0,  POPT_ARG_STRING, 0, OPT_STOP_AT, 0, 0 },
@@ -1520,7 +1524,7 @@ int parse_arguments(int *argc_p, const char ***argv_p)
 			preserve_links = 1;
 #endif
 			preserve_perms = 1;
-			preserve_times = 1;
+			preserve_mtimes = 1;
 			preserve_gid = 1;
 			preserve_uid = 1;
 			preserve_devices = 1;
@@ -1749,6 +1753,7 @@ int parse_arguments(int *argc_p, const char ***argv_p)
 			}
 			usermap = (char *)poptGetOptArg(pc);
 			usermap_via_chown = False;
+			preserve_uid = 1;
 			break;
 
 		case OPT_GROUPMAP:
@@ -1764,6 +1769,7 @@ int parse_arguments(int *argc_p, const char ***argv_p)
 			}
 			groupmap = (char *)poptGetOptArg(pc);
 			groupmap_via_chown = False;
+			preserve_gid = 1;
 			break;
 
 		case OPT_CHOWN: {
@@ -1787,6 +1793,7 @@ int parse_arguments(int *argc_p, const char ***argv_p)
 				if (asprintf(&usermap, "*:%.*s", len, chown) < 0)
 					out_of_memory("parse_arguments");
 				usermap_via_chown = True;
+				preserve_uid = 1;
 			}
 			if (arg && *arg) {
 				if (groupmap) {
@@ -1802,6 +1809,7 @@ int parse_arguments(int *argc_p, const char ***argv_p)
 				if (asprintf(&groupmap, "*:%s", arg) < 0)
 					out_of_memory("parse_arguments");
 				groupmap_via_chown = True;
+				preserve_gid = 1;
 			}
 			break;
 		}
@@ -1879,6 +1887,7 @@ int parse_arguments(int *argc_p, const char ***argv_p)
 					"--stderr mode \"%s\" is not one of errors, all, or client\n", arg);
 				return 0;
 			}
+			saw_stderr_opt = 1;
 			break;
 		}
 
@@ -1896,6 +1905,9 @@ int parse_arguments(int *argc_p, const char ***argv_p)
 			return 0;
 		}
 	}
+
+	if (msgs2stderr != 2)
+		saw_stderr_opt = 1;
 
 	if (version_opt_cnt) {
 		print_rsync_version(FINFO);
@@ -2258,23 +2270,11 @@ int parse_arguments(int *argc_p, const char ***argv_p)
 			"P *%s", backup_suffix);
 		parse_filter_str(&filter_list, backup_dir_buf, rule_template(0), 0);
 	}
-	if (update_links) {
+	if (update_links)
 		preserve_links = 1;
-	}
-	if (preserve_times) {
-		preserve_times = PRESERVE_FILE_TIMES;
-		if (!omit_dir_times)
-			preserve_times |= PRESERVE_DIR_TIMES;
-#ifdef CAN_SET_SYMLINK_TIMES
-		if (!omit_link_times)
-			preserve_times |= PRESERVE_LINK_TIMES;
-#endif
-	}
 
-	if (make_backups && !backup_dir) {
-		omit_dir_times = 0; /* Implied, so avoid -O to sender. */
-		preserve_times &= ~PRESERVE_DIR_TIMES;
-	}
+	if (make_backups && !backup_dir)
+		omit_dir_times = -1; /* Implied, so avoid -O to sender. */
 
 	if (stdout_format) {
 		if (am_server && log_format_has(stdout_format, 'I'))
@@ -2502,7 +2502,7 @@ void server_options(char **args, int *argc_p)
 			argstr[x++] = 'K';
 		if (prune_empty_dirs)
 			argstr[x++] = 'm';
-		if (omit_dir_times)
+		if (omit_dir_times > 0)
 			argstr[x++] = 'O';
 		if (omit_link_times)
 			argstr[x++] = 'J';
@@ -2540,7 +2540,7 @@ void server_options(char **args, int *argc_p)
 		argstr[x++] = 'g';
 	if (preserve_devices) /* ignore preserve_specials here */
 		argstr[x++] = 'D';
-	if (preserve_times)
+	if (preserve_mtimes)
 		argstr[x++] = 't';
 	if (preserve_atimes) {
 		argstr[x++] = 'U';
@@ -2817,6 +2817,9 @@ void server_options(char **args, int *argc_p)
 			args[ac++] = tmpdir;
 		}
 
+		if (do_fsync)
+			args[ac++] = "--fsync";
+
 		if (basis_dir[0]) {
 			/* the server only needs this option if it is not the sender,
 			 *   and it may be an older version that doesn't know this
@@ -2839,8 +2842,12 @@ void server_options(char **args, int *argc_p)
 		if (append_mode > 1)
 			args[ac++] = "--append";
 		args[ac++] = "--append";
-	} else if (inplace)
+	} else if (inplace) {
 		args[ac++] = "--inplace";
+		/* Work around a bug in older rsync versions (on the remote side) for --inplace --sparse */
+		if (sparse_files && !whole_file)
+			args[ac++] = "--no-W";
+	}
 
 	if (files_from && (!am_sender || filesfrom_host)) {
 		if (filesfrom_host) {
