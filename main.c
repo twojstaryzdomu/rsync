@@ -4,7 +4,7 @@
  * Copyright (C) 1996-2001 Andrew Tridgell <tridge@samba.org>
  * Copyright (C) 1996 Paul Mackerras
  * Copyright (C) 2001, 2002 Martin Pool <mbp@samba.org>
- * Copyright (C) 2003-2020 Wayne Davison
+ * Copyright (C) 2003-2021 Wayne Davison
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -607,11 +607,7 @@ static pid_t do_cmd(char *cmd, char *machine, char *user, char **remote_argv, in
 				rprintf(FERROR, "internal: args[] overflowed in do_cmd()\n");
 				exit_cleanup(RERR_SYNTAX);
 			}
-			if (**remote_argv == '-') {
-				if (asprintf(args + argc++, "./%s", *remote_argv++) < 0)
-					out_of_memory("do_cmd");
-			} else
-				args[argc++] = *remote_argv++;
+			args[argc++] = safe_arg(NULL, *remote_argv++);
 			remote_argc--;
 		}
 	}

@@ -21,7 +21,7 @@ LOGFILE = 'rrsync.log' # NOTE: the file must exist for a line to be appended!
 
 # NOTE when disabling: check for both a short & long version of the option!
 
-### START of options data produced by the cull_options script. ###
+### START of options data produced by the cull-options script. ###
 
 # To disable a short-named option, add its letter to this string:
 short_disabled = 's'
@@ -63,7 +63,7 @@ long_opts = {
   'files-from': 3,
   'force': 0,
   'from0': 0,
-  'fsync': 2,
+  'fsync': 0,
   'fuzzy': 0,
   'group': 0,
   'groupmap': 1,
@@ -127,7 +127,7 @@ long_opts = {
   'write-devices': -1,
 }
 
-### END of options data produced by the cull_options script. ###
+### END of options data produced by the cull-options script. ###
 
 import os, sys, re, argparse, glob, socket, time, subprocess
 from argparse import RawTextHelpFormatter
@@ -360,9 +360,9 @@ if __name__ == '__main__':
     only_group = arg_parser.add_mutually_exclusive_group()
     only_group.add_argument('-ro', action='store_true', help="Allow only reading from the DIR. Implies -no-del and -no-lock.")
     only_group.add_argument('-wo', action='store_true', help="Allow only writing to the DIR.")
+    arg_parser.add_argument('-munge', action='store_true', help="Enable rsync's --munge-links on the server side.")
     arg_parser.add_argument('-no-del', action='store_true', help="Disable rsync's --delete* and --remove* options.")
     arg_parser.add_argument('-no-lock', action='store_true', help="Avoid the single-run (per-user) lock check.")
-    arg_parser.add_argument('-munge', action='store_true', help="Enable rsync's --munge-links on the server side.")
     arg_parser.add_argument('-help', '-h', action='help', help="Output this help message and exit.")
     arg_parser.add_argument('dir', metavar='DIR', help="The restricted directory to use.")
     args = arg_parser.parse_args()
