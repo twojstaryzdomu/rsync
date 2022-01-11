@@ -69,7 +69,7 @@ jobs:
     - name: info
       run: rsync --version
     - name: check
-      run: sudo RSYNC_EXPECT_SKIPPED=acls-default,chmod-temp-dir,chown-fake,devices-fake,dir-sgid,protected-regular,xattrs-hlink,xattrs make check
+      run: sudo PATH="/usr/local/opt/coreutils/libexec/gnubin:$PATH" RSYNC_EXPECT_SKIPPED=acls-default,chmod-temp-dir,chown-fake,devices-fake,dir-sgid,protected-regular,xattrs-hlink,xattrs make check
     - name: ssl file list
       run: rsync-ssl --no-motd download.samba.org::rsyncftp/ || true
     - name: save artifact
