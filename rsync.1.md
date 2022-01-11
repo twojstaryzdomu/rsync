@@ -4160,6 +4160,14 @@ first line that is a complete subset of your options:
     recent files existing on the destination, allow any less recent directory
     to be replaced by more recent symlinks.
 
+Note that some options are mutually exclusive.  The first option listed
+below prevails over the others, when multiple symlink mode options are
+specified.
+
+0.  `--update-links`
+0.  `--copy-links`
+0.  `--links`
+
 # DIAGNOSTICS
 
 rsync occasionally produces error messages that may seem a little cryptic.  The
