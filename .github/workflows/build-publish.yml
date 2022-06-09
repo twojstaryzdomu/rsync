@@ -8,6 +8,11 @@ jobs:
     - uses: actions/checkout@v2
       with:
         fetch-depth: '0'
+    - name: Display checked out contents
+      shell: bash
+      run: |
+        pwd
+        find
     - id: debianise
       uses: twojstaryzdomu/debianise@HEAD
       with:
