@@ -12,7 +12,7 @@ jobs:
       uses: twojstaryzdomu/debianise@HEAD
       with:
         create_changelog: true
-        install_build_depends: false
+        install_build_depends: true
         debug: true
     - id: action-gh-release
       uses: softprops/action-gh-release@v1
