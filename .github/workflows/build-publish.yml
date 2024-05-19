@@ -3,11 +3,13 @@ on: {push: {branches: [master]}, pull_request: {branches: [master]}, workflow_di
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, ARM64]
     steps:
-    - uses: actions/checkout@v2
+    - uses: twojstaryzdomu/checkout@HEAD
       with:
         fetch-depth: '0'
+      env:
+        COPY_FILES: '~/.ssh/config_github ~/.ssh/id_rsa_github'
     - id: debianise
       uses: twojstaryzdomu/debianise@HEAD
       with:
